@@ -16,7 +16,6 @@ Danbooru Downloader is a Python script that fetches images and their associated 
 Before running the script, make sure you have the following installed:
 
 - Python 3.7 or higher
-- Dependencies: Install via `pip install -r requirements.txt`
 
 
 ### Required Python Libraries
@@ -27,15 +26,12 @@ Before running the script, make sure you have the following installed:
 
 
 ## Installation
-1. Clone the repository or download the script:
+Clone the repository or download the script:
    ```bash
    git clone https://github.com/xRikishi/danbooru-image-downloader.git
    cd danbooru-image-downloader
    ```
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+
 
 ---
 
