@@ -13,15 +13,22 @@ API_KEY = "your_danbooru_account_api"  # Your Danbooru API key
 
 # Settings
 SAVE_FOLDER = "danbooru_downloads"  # Folder where images and tags will be saved
-TAGS = "tag1 tag2"  # Tags to filter images (space-separated). Max 2 tags for free users.
+TAGS = "tag1 tag2"  # Tags to filter images (space-separated). Max 2 tags for free users
 # Example 1. TAGS = "genshin_impact ocean" 
 # Example 2. TAGS = "hatsune_miku rating:general" 
 # Example 3. TAGS = "id:5000000..9000000 2b_(nier:automata)" 
 # Example 4. TAGS = "score:200 2girls" 
 
+#Minimum and maximum image sizes in pixels
+MIN_IMAGE_WIDTH = 480
+MIN_IMAGE_HEIGHT = 480
+MAX_IMAGE_WIDTH = 32000
+MAX_IMAGE_HEIGHT = 32000
+
 API_URL = "https://danbooru.donmai.us/posts.json"  # Danbooru API endpoint
 LIMIT_PER_PAGE = 200  # Number of posts to fetch per page (max 200)
 MAX_PAGES = None  # Max number of pages to fetch (None for no limit)
+START_PAGE = 1  # Start from this page (for resuming downloads)
 
 # Tags that will be skipped if present in the post
 BLACKLIST_TAGS = { # Example of excluding tags related to text
@@ -94,7 +101,7 @@ def download_images():
     """
     Main function to fetch and download images and tags from Danbooru.
     """
-    page = 1
+    page = START_PAGE
     downloaded_formats = defaultdict(int)  # Dictionary to track the number of files downloaded per format
     while True:
         logging.info(f"Fetching page {page}...")  # Log the current page being fetched
@@ -135,9 +142,9 @@ def download_images():
                     image_data = download_image_with_retries(image_url)
                     image = Image.open(BytesIO(image_data))  # Open the image data using PIL
                     
-                    # Skip images smaller than 480x480 pixels
-                    if image.width < 480 or image.height < 480:
-                        logging.info(f"Skipped small image ID {post['id']} ({image.width}x{image.height})")
+                    # Skip images smaller than MIN_IMAGE_WIDTH x MIN_IMAGE_HEIGHT pixels
+                    if image.width < MIN_IMAGE_WIDTH or image.height < MIN_IMAGE_HEIGHT or image.width >= MAX_IMAGE_WIDTH or image.height >= MAX_IMAGE_HEIGHT:
+                        logging.info(f"Skipped small/large size image ID {post['id']} ({image.width}x{image.height})")
                         continue
                     
                     # Determine the image's file extension
@@ -152,16 +159,24 @@ def download_images():
                     
                     # Save the tags associated with the image
                     tag_types = {
-                        "artist": post.get("tag_string_artist", "").split(),
+                        #"artist": post.get("tag_string_artist", "").split(),
                         "copyright": post.get("tag_string_copyright", "").split(),
                         "character": post.get("tag_string_character", "").split(),
                         "general": post.get("tag_string_general", "").split(),
-                        "meta": post.get("tag_string_meta", "").split(),
+                        #"meta": post.get("tag_string_meta", "").split(),
                     }
                     filtered_tags = sum(tag_types.values(), [])  # Combine tags from all categories
+
+                    # Join tags with a comma and a space first
+                    tags_string = ", ".join(filtered_tags)  # Join tags with a comma and a space
+                    # Then replace underscores with spaces
+                    formatted_tags_string = tags_string.replace("_", " ")
+
+                    # Save to file
                     tags_file = f"{filename_base}.txt"  # Create the filename for the tags
                     with open(tags_file, "w", encoding="utf-8") as file:
-                        file.write(" ".join(filtered_tags))  # Write the tags to the file
+                        file.write(formatted_tags_string)  # Write the formatted tags to the file
+
                     logging.info(f"Tags saved: {tags_file}")  # Log the successful save of tags
                 
                 except Exception as e:
@@ -183,4 +198,4 @@ def download_images():
         logging.info(f"Format {ext}: {count} files downloaded.")
 
 if __name__ == "__main__":
-    download_images()
+    download_images()  
