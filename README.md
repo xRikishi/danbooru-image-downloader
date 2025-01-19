@@ -1,6 +1,6 @@
 # Danbooru Downloader
 
-Danbooru Downloader is a Python script that fetches images and their associated tags from Danbooru based on user-defined search criteria. The script downloads images, skips blacklisted tags, and saves both the images and their tags to a specified folder.
+Danbooru Downloader is a Python script that fetches images and their associated tags from Danbooru based on user-defined search criteria. The script downloads images, skips blacklisted tags, and saves both the images and their tags to a specified folder. Created specifically for creating datasets for LoRA training
 
 ## Features
 
@@ -15,16 +15,33 @@ Danbooru Downloader is a Python script that fetches images and their associated 
 
 Before running the script, make sure you have the following installed:
 
-- Python 3.x
-- Required Python libraries (listed in `requirements.txt`)
+- Python 3.7 or higher
+- Dependencies: Install via `pip install -r requirements.txt`
 
-To install the required libraries, run:
 
-```bash
-pip install -r requirements.txt
-```
+### Required Python Libraries
+- `requests`
+- `Pillow`
+- `logging`
 
-## How to Obtain a Danbooru API Key
+
+
+## Installation
+1. Clone the repository or download the script:
+   ```bash
+   git clone https://github.com/xRikishi/danbooru-image-downloader.git
+   cd danbooru-image-downloader
+   ```
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+---
+
+## Usage
+
+### Step 1: Set Up Your Danbooru Account
 
 To use this script, you need a Danbooru account and an API key. Follow these steps to obtain it:
 
@@ -43,3 +60,50 @@ To use this script, you need a Danbooru account and an API key. Follow these ste
    ```python
    USERNAME = "your_danbooru_name"
    API_KEY = "your_danbooru_account_api"
+
+---
+
+### Step 2: Configure the Script
+Edit the following variables in the script to suit your preferences:
+- `USERNAME`: Your Danbooru username.
+- `API_KEY`: Your Danbooru API key.
+- `TAGS`: Tags to filter images. (e.g., `genshin_impact ocean`).
+- `MIN_IMAGE_WIDTH` and `MIN_IMAGE_HEIGHT`: Minimum dimensions for images to download.
+- `MAX_IMAGE_WIDTH` and `MAX_IMAGE_HEIGHT`: Maximum dimensions for images to download.
+- `BLACKLIST_TAGS`: A set of tags to exclude.
+
+---
+
+### Step 3: Run the Script
+Execute the script with:
+```bash
+python danbooru.py
+```
+
+---
+
+## Resuming Downloads
+The script supports resuming downloads by setting `START_PAGE`. 
+- To resume from a specific page, update the `START_PAGE` variable in the script.
+
+---
+
+## Output Structure
+- **Images**: Saved in the `danbooru_downloads` folder.
+- **Tags**: Saved as `.txt` files alongside the images.
+- **Logs**: Stored in `danbooru_downloads/log`.
+
+---
+
+## Example
+```python
+# Example Configuration
+USERNAME = "example_username"
+API_KEY = "example_api_key"
+TAGS = "hatsune_miku rating:general"
+MIN_IMAGE_WIDTH = 480
+MIN_IMAGE_HEIGHT = 480
+```
+
+
+
