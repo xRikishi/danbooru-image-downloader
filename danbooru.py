@@ -14,6 +14,7 @@ API_KEY = "your_danbooru_account_api"  # Your Danbooru API key
 # Settings
 SAVE_FOLDER = "danbooru_downloads"  # Folder where images and tags will be saved
 TAGS = "tag1 tag2"  # Tags to filter images (space-separated). Max 2 tags for free users
+TAGS_ARE_TRIGGER_WORDS = False # If True, tags from TAGS will be added to the beginning of the file
 # Example 1. TAGS = "genshin_impact ocean" 
 # Example 2. TAGS = "hatsune_miku rating:general" 
 # Example 3. TAGS = "id:5000000..9000000 2b_(nier:automata)" 
@@ -29,10 +30,11 @@ API_URL = "https://danbooru.donmai.us/posts.json"  # Danbooru API endpoint
 LIMIT_PER_PAGE = 200  # Number of posts to fetch per page (max 200)
 MAX_PAGES = None  # Max number of pages to fetch (None for no limit)
 START_PAGE = 1  # Start from this page (for resuming downloads)
+END_PAGE = float('inf') # End at this page. float('inf') is for all pages
 
 # Tags that will be skipped if present in the post
 BLACKLIST_TAGS = { # Example of excluding tags related to text
-    
+
     # Tags related to text and metadata
     "translated", "translation_request",
     "lowres", "traditional_media", "animated", 
@@ -95,7 +97,7 @@ def download_image_with_retries(image_url, retries=MAX_RETRIES):
             attempt += 1
             logging.warning(f"Retry {attempt}/{retries} for {image_url}: {e}")
             time.sleep(2)  # Wait before retrying
-    raise Exception(f"Failed to download image after {retries} attempts: {image_url}")
+    raise Exception(f"❌Failed to download image after {retries} attempts: {image_url}")
 
 def download_images():
     """
@@ -103,7 +105,7 @@ def download_images():
     """
     page = START_PAGE
     downloaded_formats = defaultdict(int)  # Dictionary to track the number of files downloaded per format
-    while True:
+    while (page < END_PAGE):
         logging.info(f"Fetching page {page}...")  # Log the current page being fetched
         params = {
             "tags": TAGS,
@@ -117,7 +119,7 @@ def download_images():
         if response.status_code == 200:  # Check if the request was successful
             posts = response.json()
             if not posts:  # Stop if there are no more posts
-                logging.info("No more posts to download.")
+                logging.info("✅ No more posts to download.")
                 break
 
             for post in posts:
@@ -180,16 +182,16 @@ def download_images():
                     logging.info(f"Tags saved: {tags_file}")  # Log the successful save of tags
                 
                 except Exception as e:
-                    logging.error(f"Error processing post ID {post['id']}: {e}")  # Log any errors during processing
+                    logging.error(f"⚠️ Error processing post ID {post['id']}: {e}")  # Log any errors during processing
 
             page += 1  # Move to the next page
             if MAX_PAGES and page > MAX_PAGES:  # Stop if the max page limit is reached
-                logging.info(f"Reached the limit of {MAX_PAGES} pages.")
+                logging.info(f"✅ Reached the limit of {MAX_PAGES} pages.")
                 break
 
             time.sleep(1)  # Pause to respect API rate limits
         else:
-            logging.error(f"Error: {response.status_code} - {response.text}")  # Log any API errors
+            logging.error(f"⚠️ Error: {response.status_code} - {response.text}")  # Log any API errors
             break
 
     # Log a summary of the downloaded file formats
@@ -197,5 +199,31 @@ def download_images():
     for ext, count in downloaded_formats.items():
         logging.info(f"Format {ext}: {count} files downloaded.")
 
+
+def sort_tags_in_txt_files():
+    if not TAGS_ARE_TRIGGER_WORDS:
+        return
+    
+    tags_to_prioritize = {tag.replace('_', ' ') for tag in TAGS.split()}
+    logging.info(f"📄 Start of trigger word processing...")
+    for filename in os.listdir(SAVE_FOLDER):
+        if filename.endswith(".txt"):
+            filepath = os.path.join(SAVE_FOLDER, filename)
+            
+            with open(filepath, "r", encoding="utf-8") as file:
+                tags = file.read().strip().split(", ")
+            
+            prioritized_tags = [tag for tag in tags_to_prioritize if tag in tags]
+            other_tags = [tag for tag in tags if tag not in tags_to_prioritize]
+            
+            sorted_tags = prioritized_tags + other_tags
+            
+            with open(filepath, "w", encoding="utf-8") as file:
+                file.write(", ".join(sorted_tags))
+    logging.info(f"📄 End of trigger word processing.")
+    
+
+
 if __name__ == "__main__":
-    download_images()  
+    download_images()
+    sort_tags_in_txt_files()  
