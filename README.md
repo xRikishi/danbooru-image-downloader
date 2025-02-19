@@ -5,6 +5,7 @@ Danbooru Downloader is a Python script that fetches images and their associated 
 ## Features
 
 - **Download Images**: Fetches images from Danbooru based on the specified tags.
+- **Trigger words**: You can make search tags into trigger words (save the search tags at the beginning `.txt` file)
 - **Blacklist Tags**: Skips images that have any blacklisted tags.
 - **Retries on Failure**: If the download fails, it retries up to a specified number of times.
 - **Tagging**: Saves tags associated with each image into a `.txt` file.
