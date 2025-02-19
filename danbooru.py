@@ -14,11 +14,14 @@ API_KEY = "your_danbooru_account_api"  # Your Danbooru API key
 # Settings
 SAVE_FOLDER = "danbooru_downloads"  # Folder where images and tags will be saved
 TAGS = "tag1 tag2"  # Tags to filter images (space-separated). Max 2 tags for free users
-TAGS_ARE_TRIGGER_WORDS = False # If True, tags from TAGS will be added to the beginning of the file
 # Example 1. TAGS = "genshin_impact ocean" 
 # Example 2. TAGS = "hatsune_miku rating:general" 
 # Example 3. TAGS = "id:5000000..9000000 2b_(nier:automata)" 
 # Example 4. TAGS = "score:200 2girls" 
+
+TAGS_TO_TRIGGER_WORDS = True # If True, tags from TAGS will be added to the beginning of the file
+ADD_OWN_TRIGGER_WORDS = "" # Empty to add nothing. 
+#Usage example ADD_OWN_TRIGGER_WORDS = "I love Miku"
 
 #Minimum and maximum image sizes in pixels
 MIN_IMAGE_WIDTH = 480
@@ -200,12 +203,12 @@ def download_images():
         logging.info(f"Format {ext}: {count} files downloaded.")
 
 
-def sort_tags_in_txt_files():
-    if not TAGS_ARE_TRIGGER_WORDS:
+def search_tags_to_triggers():
+    if not TAGS_TO_TRIGGER_WORDS:
         return
     
     tags_to_prioritize = {tag.replace('_', ' ') for tag in TAGS.split()}
-    logging.info(f"📄 Start of trigger word processing...")
+    logging.info(f"📄 Start of replacing search tags to triggers...")
     for filename in os.listdir(SAVE_FOLDER):
         if filename.endswith(".txt"):
             filepath = os.path.join(SAVE_FOLDER, filename)
@@ -220,10 +223,37 @@ def sort_tags_in_txt_files():
             
             with open(filepath, "w", encoding="utf-8") as file:
                 file.write(", ".join(sorted_tags))
-    logging.info(f"📄 End of trigger word processing.")
+    logging.info(f"📄 End of replacing search tags to triggers.")
+    
+
+def add_own_triggers():
+    
+    if ADD_OWN_TRIGGER_WORDS.strip() != "":
+        logging.info(f"📄 Start of own trigger word adding...")
+        for filename in os.listdir(SAVE_FOLDER):
+            if filename.endswith(".txt"):
+                filepath = os.path.join(SAVE_FOLDER, filename)
+                
+                # Open the file for reading
+                with open(filepath, "r", encoding="utf-8") as file:
+                    content = file.read().strip()
+
+                # Open the file for recording and add own trigger word to the beginning
+                with open(filepath, "w", encoding="utf-8") as file:
+                    content = ADD_OWN_TRIGGER_WORDS + ", " + content
+                    content = content.replace(", ,", ",")
+                    content = content.replace(",,", ",")
+                    content = content.replace("  ", " ")
+                    content = content.replace("  ", " ")
+                    
+                    file.write(content)  # Adding own trigger word before the content
+                    
+        logging.info(f"📄 End of own trigger word processing.")
+
     
 
 
 if __name__ == "__main__":
     download_images()
-    sort_tags_in_txt_files()  
+    search_tags_to_triggers()
+    add_own_triggers()  
