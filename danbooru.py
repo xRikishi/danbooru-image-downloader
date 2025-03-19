@@ -6,12 +6,17 @@ from io import BytesIO
 from http.client import IncompleteRead
 import logging
 from collections import defaultdict
+from datetime import datetime
+API_URL = "https://danbooru.donmai.us/posts.json"
+
 
 # Your Danbooru data
 USERNAME = "your_danbooru_name"  # Your Danbooru username
 API_KEY = "your_danbooru_account_api"  # Your Danbooru API key
 
-# Settings
+
+
+# Your download settings
 SAVE_FOLDER = "danbooru_downloads"  # Folder where images and tags will be saved
 TAGS = "tag1 tag2"  # Tags to filter images (space-separated). Max 2 tags for free users
 # Example 1. TAGS = "genshin_impact ocean" 
@@ -23,13 +28,7 @@ TAGS_TO_TRIGGER_WORDS = True # If True, tags from TAGS will be added to the begi
 ADD_OWN_TRIGGER_WORDS = "" # Empty to add nothing. 
 #Usage example ADD_OWN_TRIGGER_WORDS = "I love Miku"
 
-#Minimum and maximum image sizes in pixels
-MIN_IMAGE_WIDTH = 480
-MIN_IMAGE_HEIGHT = 480
-MAX_IMAGE_WIDTH = 32000
-MAX_IMAGE_HEIGHT = 32000
 
-API_URL = "https://danbooru.donmai.us/posts.json"  # Danbooru API endpoint
 LIMIT_PER_PAGE = 200  # Number of posts to fetch per page (max 200)
 MAX_PAGES = None  # Max number of pages to fetch (None for no limit)
 START_PAGE = 1  # Start from this page (for resuming downloads)
@@ -37,7 +36,7 @@ END_PAGE = float('inf') # End at this page. float('inf') is for all pages
 
 # Tags that will be skipped if present in the post
 BLACKLIST_TAGS = { # Example of excluding tags related to text
-
+    
     # Tags related to text and metadata
     "translated", "translation_request",
     "lowres", "traditional_media", "animated", 
@@ -55,6 +54,29 @@ BLACKLIST_TAGS = { # Example of excluding tags related to text
 }  
 
 MAX_RETRIES = 5  # Maximum number of retries for downloading an image
+
+MIN_IMAGE_WIDTH = 480
+MIN_IMAGE_HEIGHT = 480
+MAX_IMAGE_WIDTH = 32000
+MAX_IMAGE_HEIGHT = 32000
+
+MIN_DATE = "1990-01-01"  # YYYY-MM-DD 
+MAX_DATE = "2035-12-31"  # YYYY-MM-DD
+
+MIN_SCORE = None
+MAX_SCORE = None
+
+MIN_ID = None
+MAX_ID = None
+
+ALLOWED_RATINGS = {"e","g","q","s"} # e - explicit, g - general, q - questionable, s - sensitive 
+
+
+
+
+
+
+
 
 # Logging settings
 LOG_FOLDER = os.path.join(SAVE_FOLDER, "log")  # Folder for logs
@@ -102,12 +124,17 @@ def download_image_with_retries(image_url, retries=MAX_RETRIES):
             time.sleep(2)  # Wait before retrying
     raise Exception(f"❌Failed to download image after {retries} attempts: {image_url}")
 
+
+
+
+
 def download_images():
     """
     Main function to fetch and download images and tags from Danbooru.
     """
     page = START_PAGE
     downloaded_formats = defaultdict(int)  # Dictionary to track the number of files downloaded per format
+
     while (page < END_PAGE):
         logging.info(f"Fetching page {page}...")  # Log the current page being fetched
         params = {
@@ -131,16 +158,57 @@ def download_images():
                     continue
                 
                 # Skip posts with blacklisted tags
+                
                 if is_blacklisted(post.get("tag_string", "")):
-                    logging.info(f"Skipped blacklisted post ID {post['id']}")
+                    logging.info(f"⏩ Skipped blacklisted post ID {post['id']}")
                     continue
+
+
+
+
+
+                # Фильтр по ID
+                if MIN_ID is not None and post["id"] < MIN_ID:
+                    logging.info(f"⏩ Min ID is {MIN_ID}. Skipped post ID {post['id']}")
+                    continue
+                if MAX_ID is not None and post["id"] > MAX_ID:
+                    logging.info(f"⏩ Max ID is {MAX_ID}. Skipped post ID {post['id']}")
+                    continue
+
+                # Фильтр по дате создания
+                post_date = datetime.fromisoformat(post["created_at"].split("+")[0])
+                if MIN_DATE and post_date < datetime.fromisoformat(MIN_DATE):
+                    logging.info(f"⏩ Min date is {MIN_DATE}. Post date is {post_date}. Skipped post ID {post['id']}")
+                    continue
+                if MAX_DATE and post_date > datetime.fromisoformat(MAX_DATE):
+                    logging.info(f"⏩ Max date is {MAX_DATE}. Post date is {post_date}. Skipped post ID {post['id']}")
+                    continue
+
+                # Фильтр по score
+                if MIN_SCORE is not None and post["score"] < MIN_SCORE:
+                    logging.info(f"⏩ Min score is {MIN_SCORE}. Post score is {post["score"]}. Skipped post ID {post['id']}")
+                    continue
+                if MAX_SCORE is not None and post["score"] > MAX_SCORE:
+                    logging.info(f"⏩ Max score is {MAX_SCORE}. Post score is {post["score"]}. Skipped post ID {post['id']}")
+                    continue
+
+                # Фильтр по рейтингу
+                if ALLOWED_RATINGS and post["rating"] not in ALLOWED_RATINGS:
+
+                    logging.info(f"⏩ Post has rating \"{post["rating"]}\". Skipped post ID {post['id']}")
+                    continue
+
+
+
+
+
                 
                 try:
                     # Check if the image file has already been downloaded
                     filename_base = os.path.join(SAVE_FOLDER, str(post["id"]))  # Base filename (ID of the post)
                     existing_file = next((f for f in os.listdir(SAVE_FOLDER) if f.startswith(f"{post['id']}.") and not f.endswith(".txt")), None)
                     if existing_file:
-                        logging.info(f"Skipped already downloaded file ID {post['id']} ({existing_file})")
+                        logging.info(f"⏩ Skipped already downloaded file ID {post['id']} ({existing_file})")
                         continue
                     
                     # Download the image data
@@ -149,7 +217,7 @@ def download_images():
                     
                     # Skip images smaller than MIN_IMAGE_WIDTH x MIN_IMAGE_HEIGHT pixels
                     if image.width < MIN_IMAGE_WIDTH or image.height < MIN_IMAGE_HEIGHT or image.width >= MAX_IMAGE_WIDTH or image.height >= MAX_IMAGE_HEIGHT:
-                        logging.info(f"Skipped small/large size image ID {post['id']} ({image.width}x{image.height})")
+                        logging.info(f"⏩Skipped small/large size image ID {post['id']} ({image.width}x{image.height})")
                         continue
                     
                     # Determine the image's file extension
