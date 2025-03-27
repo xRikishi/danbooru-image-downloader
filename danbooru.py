@@ -216,6 +216,8 @@ def download_images():
                                 break
                             filename += tag + "_"
 
+                        filename = filename.replace("\\\\", "").replace("/", "").replace("\\", "")
+
                         filename = filename.rstrip("_")[:220]
                         filename_base = os.path.join(SAVE_FOLDER, filename)
 
