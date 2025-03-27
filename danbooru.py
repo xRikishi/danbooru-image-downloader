@@ -1,12 +1,16 @@
 import requests
 import os
 import time
+import re
 from PIL import Image
 from io import BytesIO
 from http.client import IncompleteRead
 import logging
 from collections import defaultdict
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from os import cpu_count
+
 API_URL = "https://danbooru.donmai.us/posts.json"
 
 
@@ -31,7 +35,7 @@ ADD_OWN_TRIGGER_WORDS = "" # Empty to add nothing.
 
 LIMIT_PER_PAGE = 200  # Number of posts to fetch per page (max 200)
 MAX_PAGES = None  # Max number of pages to fetch (None for no limit)
-START_PAGE = 1  # Start from this page (for resuming downloads)
+START_PAGE = 0  # Start from this page (for resuming downloads)
 END_PAGE = float('inf') # End at this page. float('inf') is for all pages
 
 # Tags that will be skipped if present in the post
@@ -70,11 +74,6 @@ MIN_ID = None
 MAX_ID = None
 
 ALLOWED_RATINGS = {"e","g","q","s"} # e - explicit, g - general, q - questionable, s - sensitive 
-
-
-
-
-
 
 
 
@@ -125,150 +124,177 @@ def download_image_with_retries(image_url, retries=MAX_RETRIES):
     raise Exception(f"❌Failed to download image after {retries} attempts: {image_url}")
 
 
-
-
-
 def download_images():
     """
     Main function to fetch and download images and tags from Danbooru.
     """
     page = START_PAGE
     downloaded_formats = defaultdict(int)  # Dictionary to track the number of files downloaded per format
+    max_workers = max(1, cpu_count() - 1)
+    with ThreadPoolExecutor(max_workers) as executor:
+        futures = []  # List to store future tasks
 
-    while (page < END_PAGE):
-        logging.info(f"Fetching page {page}...")  # Log the current page being fetched
-        params = {
-            "tags": TAGS,
-            "limit": LIMIT_PER_PAGE,
-            "page": page,
-            "login": USERNAME,
-            "api_key": API_KEY,
-        }
-        response = requests.get(API_URL, params=params)  # Fetch posts from Danbooru API
+        while (page < END_PAGE):
+            logging.info(f"Fetching page {page}...")  # Log the current page being fetched
+            params = {
+                "tags": TAGS,
+                "limit": LIMIT_PER_PAGE,
+                "page": page,
+                "login": USERNAME,
+                "api_key": API_KEY,
+            }
+            response = requests.get(API_URL, params=params)  # Fetch posts from Danbooru API
 
-        if response.status_code == 200:  # Check if the request was successful
-            posts = response.json()
-            if not posts:  # Stop if there are no more posts
-                logging.info("✅ No more posts to download.")
-                break
+            if response.status_code == 200:  # Check if the request was successful
+                posts = response.json()
+                if not posts:  # Stop if there are no more posts
+                    logging.info("✅ No more posts to download.")
+                    break
 
-            for post in posts:
-                image_url = post.get("file_url")  # Get the URL of the image
-                if not image_url:
-                    continue
-                
-                # Skip posts with blacklisted tags
-                
-                if is_blacklisted(post.get("tag_string", "")):
-                    logging.info(f"⏩ Skipped blacklisted post ID {post['id']}")
-                    continue
-
-
-
-
-
-                # Фильтр по ID
-                if MIN_ID is not None and post["id"] < MIN_ID:
-                    logging.info(f"⏩ Min ID is {MIN_ID}. Skipped post ID {post['id']}")
-                    continue
-                if MAX_ID is not None and post["id"] > MAX_ID:
-                    logging.info(f"⏩ Max ID is {MAX_ID}. Skipped post ID {post['id']}")
-                    continue
-
-                # Фильтр по дате создания
-                post_date = datetime.fromisoformat(post["created_at"].split("+")[0])
-                if MIN_DATE and post_date < datetime.fromisoformat(MIN_DATE):
-                    logging.info(f"⏩ Min date is {MIN_DATE}. Post date is {post_date}. Skipped post ID {post['id']}")
-                    continue
-                if MAX_DATE and post_date > datetime.fromisoformat(MAX_DATE):
-                    logging.info(f"⏩ Max date is {MAX_DATE}. Post date is {post_date}. Skipped post ID {post['id']}")
-                    continue
-
-                # Фильтр по score
-                if MIN_SCORE is not None and post["score"] < MIN_SCORE:
-                    logging.info(f"⏩ Min score is {MIN_SCORE}. Post score is {post["score"]}. Skipped post ID {post['id']}")
-                    continue
-                if MAX_SCORE is not None and post["score"] > MAX_SCORE:
-                    logging.info(f"⏩ Max score is {MAX_SCORE}. Post score is {post["score"]}. Skipped post ID {post['id']}")
-                    continue
-
-                # Фильтр по рейтингу
-                if ALLOWED_RATINGS and post["rating"] not in ALLOWED_RATINGS:
-
-                    logging.info(f"⏩ Post has rating \"{post["rating"]}\". Skipped post ID {post['id']}")
-                    continue
-
-
-
-
-
-                
-                try:
-                    # Check if the image file has already been downloaded
-                    filename_base = os.path.join(SAVE_FOLDER, str(post["id"]))  # Base filename (ID of the post)
-                    existing_file = next((f for f in os.listdir(SAVE_FOLDER) if f.startswith(f"{post['id']}.") and not f.endswith(".txt")), None)
-                    if existing_file:
-                        logging.info(f"⏩ Skipped already downloaded file ID {post['id']} ({existing_file})")
+                for post in posts:
+                    image_url = post.get("file_url")  # Get the URL of the image
+                    if not image_url:
                         continue
                     
-                    # Download the image data
-                    image_data = download_image_with_retries(image_url)
-                    image = Image.open(BytesIO(image_data))  # Open the image data using PIL
-                    
-                    # Skip images smaller than MIN_IMAGE_WIDTH x MIN_IMAGE_HEIGHT pixels
-                    if image.width < MIN_IMAGE_WIDTH or image.height < MIN_IMAGE_HEIGHT or image.width >= MAX_IMAGE_WIDTH or image.height >= MAX_IMAGE_HEIGHT:
-                        logging.info(f"⏩Skipped small/large size image ID {post['id']} ({image.width}x{image.height})")
+                    # Skip posts with blacklisted tags
+                    blacklisted_tags = [tag for tag in post.get("tag_string", "").split() if tag in BLACKLIST_TAGS]
+
+                    if blacklisted_tags:
+                        logging.info(f"⏩ Skipped blacklisted post ID {post['id']}. Blacklisted tags: {', '.join(blacklisted_tags)}")
+                        continue
+
+                    # Filter by ID
+                    if MIN_ID is not None and post["id"] < MIN_ID:
+                        logging.info(f"⏩ Min ID is {MIN_ID}. Skipped post ID {post['id']}")
+                        continue
+                    if MAX_ID is not None and post["id"] > MAX_ID:
+                        logging.info(f"⏩ Max ID is {MAX_ID}. Skipped post ID {post['id']}")
+                        continue
+
+                    # Filter by creation date
+                    post_date = datetime.fromisoformat(post["created_at"]).replace(tzinfo=None)
+                    if MIN_DATE and post_date < datetime.fromisoformat(MIN_DATE):
+                        logging.info(f"⏩ Min date is {MIN_DATE}. Post date is {post_date}. Skipped post ID {post['id']}")
+                        continue
+                    if MAX_DATE and post_date > datetime.fromisoformat(MAX_DATE):
+                        logging.info(f"⏩ Max date is {MAX_DATE}. Post date is {post_date}. Skipped post ID {post['id']}")
+                        continue
+
+                    # Filter by score
+                    if MIN_SCORE is not None and post["score"] < MIN_SCORE:
+                        logging.info("⏩ Min score is {}. Post score is {}. Skipped post ID {}".format(MIN_SCORE, post["score"], post["id"]))
+                        continue
+                    if MAX_SCORE is not None and post["score"] > MAX_SCORE:
+                        logging.info("⏩ Max score is {}. Post score is {}. Skipped post ID {}".format(MAX_SCORE, post["score"], post["id"]))
+                        continue
+
+                    # Filter by rating
+                    if ALLOWED_RATINGS and post["rating"] not in ALLOWED_RATINGS:
+                        logging.info("⏩ Post has rating \"{}\". Skipped post ID {}".format(post["rating"], post["id"]))
                         continue
                     
-                    # Determine the image's file extension
-                    extension = image.format.lower()  # Use PIL to get the format (e.g., jpg, png)
-                    image_filename = f"{filename_base}.{extension}"  # Create the full image filename
+                    try:
+                        # Save content with ID and tags in file name
+                        tags_file_name = []
+                        #tags_file_name.extend(post.get("tag_string_artist", "").split())
+                        tags_file_name.extend(post.get("tag_string_character", "").split())
+                        tags_file_name.extend(post.get("tag_string_copyright", "").split())
+                        tags_file_name.extend(post.get("tag_string_general", "").split())
+                        #tags_file_name.extend(post.get("tag_string_meta", "").split())
+
+                        tags_file_name = tags_file_name[:50] # Max 50 first tags
+                        invalid_chars = r'[\/:*?"<>|]'
+                        tags_file_name = [re.sub(invalid_chars, "_", tag) for tag in tags_file_name]
+                        tags_str = "_".join(tags_file_name)
+                        if len(tags_str) > 210:
+                            tags_str = tags_str[:210]
+
+                        filename = f"{post['id']}_"
+
+                        for tag in tags_file_name:
+                            if len(filename) + len(tag) + 1 > 220:
+                                break
+                            filename += tag + "_"
+
+                        filename = filename.rstrip("_")[:220]
+                        filename_base = os.path.join(SAVE_FOLDER, filename)
+
+                        # Check if the image file has already been downloaded
+                        existing_file = next((f for f in os.listdir(SAVE_FOLDER) if f.startswith(f"{post['id']}") and not f.endswith(".txt")), None)
+                        if existing_file:
+                            logging.info(f"⏩ Skipped already downloaded file ID {post['id']} ({existing_file})")
+                            continue
+                        
+                        # Submit the image download task to the executor
+                        futures.append(executor.submit(download_and_save_image, post, filename_base, image_url, downloaded_formats))
+
                     
-                    # Save the image to the disk
-                    with open(image_filename, "wb") as file:
-                        file.write(image_data)
-                    logging.info(f"Downloaded: {image_filename}")  # Log the successful download
-                    downloaded_formats[extension] += 1  # Increment the count for this format
-                    
-                    # Save the tags associated with the image
-                    tag_types = {
-                        #"artist": post.get("tag_string_artist", "").split(),
-                        "copyright": post.get("tag_string_copyright", "").split(),
-                        "character": post.get("tag_string_character", "").split(),
-                        "general": post.get("tag_string_general", "").split(),
-                        #"meta": post.get("tag_string_meta", "").split(),
-                    }
-                    filtered_tags = sum(tag_types.values(), [])  # Combine tags from all categories
+                    except Exception as e:
+                        logging.error(f"⚠️ Error processing post ID {post['id']}: {e}")  # Log any errors during processing
 
-                    # Join tags with a comma and a space first
-                    tags_string = ", ".join(filtered_tags)  # Join tags with a comma and a space
-                    # Then replace underscores with spaces
-                    formatted_tags_string = tags_string.replace("_", " ")
+                page += 1  # Move to the next page
+                if MAX_PAGES and page > MAX_PAGES:  # Stop if the max page limit is reached
+                    logging.info(f"✅ Reached the limit of {MAX_PAGES} pages.")
+                    break
 
-                    # Save to file
-                    tags_file = f"{filename_base}.txt"  # Create the filename for the tags
-                    with open(tags_file, "w", encoding="utf-8") as file:
-                        file.write(formatted_tags_string)  # Write the formatted tags to the file
-
-                    logging.info(f"Tags saved: {tags_file}")  # Log the successful save of tags
-                
-                except Exception as e:
-                    logging.error(f"⚠️ Error processing post ID {post['id']}: {e}")  # Log any errors during processing
-
-            page += 1  # Move to the next page
-            if MAX_PAGES and page > MAX_PAGES:  # Stop if the max page limit is reached
-                logging.info(f"✅ Reached the limit of {MAX_PAGES} pages.")
+                time.sleep(1)  # Pause to respect API rate limits
+            else:
+                logging.error(f"⚠️ Error: {response.status_code} - {response.text}")  # Log any API errors
                 break
 
-            time.sleep(1)  # Pause to respect API rate limits
-        else:
-            logging.error(f"⚠️ Error: {response.status_code} - {response.text}")  # Log any API errors
-            break
+        # Wait for all threads to finish
+        for future in as_completed(futures):
+            future.result()  # Ensure all tasks complete and handle any exceptions
 
     # Log a summary of the downloaded file formats
     logging.info("Download summary:")
     for ext, count in downloaded_formats.items():
         logging.info(f"Format {ext}: {count} files downloaded.")
+
+
+def download_and_save_image(post, filename_base, image_url, downloaded_formats):
+    try:
+        # Download the image data
+        image_data = download_image_with_retries(image_url)
+        image = Image.open(BytesIO(image_data))  # Open the image data using PIL
+        
+        # Skip images smaller than MIN_IMAGE_WIDTH x MIN_IMAGE_HEIGHT pixels
+        if image.width < MIN_IMAGE_WIDTH or image.height < MIN_IMAGE_HEIGHT or image.width >= MAX_IMAGE_WIDTH or image.height >= MAX_IMAGE_HEIGHT:
+            logging.info(f"⏩ Skipped small/large size image ID {post['id']} ({image.width}x{image.height})")
+            return
+        
+        # Determine the image's file extension
+        extension = image.format.lower()  # Use PIL to get the format (e.g., jpg, png)
+        image_filename = f"{filename_base}.{extension}"  # Create the full image filename
+        
+        # Save the image to the disk
+        with open(image_filename, "wb") as file:
+            file.write(image_data)
+        logging.info(f"Downloaded: {image_filename}")  # Log the successful download
+        downloaded_formats[extension] += 1  # Increment the count for this format
+
+        # Save the tags associated with the image
+        tag_types = {
+            "copyright": post.get("tag_string_copyright", "").split(),
+            "character": post.get("tag_string_character", "").split(),
+            "general": post.get("tag_string_general", "").split(),
+        }
+        filtered_tags = sum(tag_types.values(), [])  # Combine tags from all categories
+
+        # Join tags with a comma and a space first
+        tags_string = ", ".join(filtered_tags)  # Join tags with a comma and a space
+        # Then replace underscores with spaces
+        formatted_tags_string = tags_string.replace("_", " ")
+
+        # Save to file
+        tags_file = f"{filename_base}.txt"  # Create the filename for the tags
+        with open(tags_file, "w", encoding="utf-8") as file:
+            file.write(formatted_tags_string)  # Write the formatted tags to the file
+
+        logging.info(f"Tags saved: {tags_file}")  # Log the successful save of tags
+
+    except Exception as e:
+        logging.error(f"⚠️ Error processing post ID {post['id']}: {e}")  # Log any errors during processing
 
 
 def search_tags_to_triggers():
