@@ -163,6 +163,13 @@ def download_images():
                         logging.info(f"⏩ Skipped blacklisted post ID {post['id']}. Blacklisted tags: {', '.join(blacklisted_tags)}")
                         continue
 
+                    # Skip too small or too big
+                    if post["image_width"] < MIN_IMAGE_WIDTH or post["image_height"] < MIN_IMAGE_HEIGHT or post["image_width"] >= MAX_IMAGE_WIDTH or post["image_height"] >= MAX_IMAGE_HEIGHT:
+                        info_image_width = post["image_width"]
+                        info_image_height = post["image_height"]
+                        logging.info(f"⏩ Skipped small/large size post ID {post['id']} ({info_image_width}x{info_image_height})")
+                        continue
+
                     # Filter by ID
                     if MIN_ID is not None and post["id"] < MIN_ID:
                         logging.info(f"⏩ Min ID is {MIN_ID}. Skipped post ID {post['id']}")
@@ -258,28 +265,34 @@ def download_and_save_image(post, filename_base, image_url, downloaded_formats):
     try:
         # Download the image data
         image_data = download_image_with_retries(image_url)
-        image = Image.open(BytesIO(image_data))  # Open the image data using PIL
-        
-        # Skip images smaller than MIN_IMAGE_WIDTH x MIN_IMAGE_HEIGHT pixels
-        if image.width < MIN_IMAGE_WIDTH or image.height < MIN_IMAGE_HEIGHT or image.width >= MAX_IMAGE_WIDTH or image.height >= MAX_IMAGE_HEIGHT:
-            logging.info(f"⏩ Skipped small/large size image ID {post['id']} ({image.width}x{image.height})")
-            return
-        
-        # Determine the image's file extension
-        extension = image.format.lower()  # Use PIL to get the format (e.g., jpg, png)
-        image_filename = f"{filename_base}.{extension}"  # Create the full image filename
-        
-        # Save the image to the disk
-        with open(image_filename, "wb") as file:
-            file.write(image_data)
-        logging.info(f"Downloaded: {image_filename}")  # Log the successful download
-        downloaded_formats[extension] += 1  # Increment the count for this format
+        # Defining the file extension from the URL
+        file_ext = os.path.splitext(image_url)[1].lower().strip(".")  # for example, 'jpg', 'mp4', 'gif'
+
+        # If it's a video or a (mp4, webm and other), just save it without opening the PIL
+        if file_ext in {"mp4", "webm", "swf", "zip", "avif"}:
+            video_filename = f"{filename_base}.{file_ext}"
+            with open(video_filename, "wb") as f:
+                f.write(image_data)
+            logging.info(f"🎥 Video downloaded: {video_filename}")
+            downloaded_formats[file_ext] += 1
+        else:
+            # Open the image via PIL only if it is not a video
+            image = Image.open(BytesIO(image_data))
+            # Saving the image
+            extension = image.format.lower()
+            image_filename = f"{filename_base}.{extension}"
+            with open(image_filename, "wb") as f:
+                f.write(image_data)
+            logging.info(f"🖼️ Image downloaded: {image_filename}")
+            downloaded_formats[extension] += 1
 
         # Save the tags associated with the image
         tag_types = {
+            #"artist": post.get("tag_string_artist", "").split(),
             "copyright": post.get("tag_string_copyright", "").split(),
             "character": post.get("tag_string_character", "").split(),
             "general": post.get("tag_string_general", "").split(),
+            #"meta": post.get("tag_string_meta", "").split(),
         }
         filtered_tags = sum(tag_types.values(), [])  # Combine tags from all categories
 
